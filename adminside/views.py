@@ -9,13 +9,13 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet
+from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from rest_framework_simplejwt.tokens import RefreshToken, TokenError
-from rest_framework_simplejwt.views import TokenRefreshView
 
 from .authentication import AdminJWTAuthentication
-
 from .models import Admin, Role
 from .permissions import HasRolePermission, IsRoleAdmin
+
 from .serializers import (
     AdminChangePasswordSerializer,
     AdminForgotPasswordSerializer,
@@ -23,19 +23,7 @@ from .serializers import (
     AdminLogoutSerializer,
     AdminUserSerializer,
     RoleSerializer,
-)
-
-from .models import Admin, Role
-
-from .permissions import HasRolePermission, IsRoleAdmin
-
-from .serializers import (
-    AdminChangePasswordSerializer,
-    AdminForgotPasswordSerializer,
-    AdminLoginSerializer,
-    AdminUserSerializer,
-    RoleListSerializer,
-    RoleSerializer,
+    RoleListSerializer
 )
 
 
@@ -140,10 +128,33 @@ class AdminLoginAPIView(APIView):
         )
 
 
-
-class AdminTokenRefreshAPIView(TokenRefreshView):
+class AdminTokenRefreshAPIView(APIView):
     authentication_classes = []
     permission_classes = []
+
+    def post(self, request):
+        raw_refresh = request.headers.get("X-Refresh-Token", "")
+        refresh_token = self._extract_token(raw_refresh)
+
+        if not refresh_token:
+            return Response(
+                {"detail": "Provide refresh token in X-Refresh-Token header."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = TokenRefreshSerializer(data={"refresh": refresh_token})
+        serializer.is_valid(raise_exception=True)
+        return Response(serializer.validated_data, status=status.HTTP_200_OK)
+
+    @staticmethod
+    def _extract_token(raw_header_value):
+        if not raw_header_value:
+            return ""
+
+        if raw_header_value.startswith("Bearer "):
+            return raw_header_value.split(" ", 1)[1].strip()
+
+        return raw_header_value.strip()
 
 
 class AdminLogoutAPIView(APIView):
@@ -151,16 +162,23 @@ class AdminLogoutAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        serializer = AdminLogoutSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        raw_refresh = request.headers.get("X-Refresh-Token", "")
+        refresh_token = AdminTokenRefreshAPIView._extract_token(raw_refresh)
+
+        if not refresh_token:
+            return Response(
+                {"detail": "Provide refresh token in X-Refresh-Token header."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         try:
-            token = RefreshToken(serializer.validated_data["refresh"])
+            token = RefreshToken(refresh_token)
             token.blacklist()
         except TokenError:
             return Response({"detail": "Invalid or expired refresh token."}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response({"detail": "Logged out successfully."}, status=status.HTTP_200_OK)
+
 
 class AdminForgotPasswordAPIView(APIView):
     authentication_classes = []

@@ -48,7 +48,7 @@ class RoleListSerializer(serializers.ModelSerializer):
         return attrs
 
 class AdminUserSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, min_length=8)
+    password = serializers.CharField(write_only=True)
 
     class Meta:
         model = Admin
