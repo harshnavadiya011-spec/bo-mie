@@ -3,17 +3,38 @@ from django.core import signing
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from django.utils import timezone
+
 from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet
+from rest_framework_simplejwt.tokens import RefreshToken, TokenError
+from rest_framework_simplejwt.views import TokenRefreshView
+
+from .authentication import AdminJWTAuthentication
 
 from .models import Admin, Role
+from .permissions import HasRolePermission, IsRoleAdmin
+from .serializers import (
+    AdminChangePasswordSerializer,
+    AdminForgotPasswordSerializer,
+    AdminLoginSerializer,
+    AdminLogoutSerializer,
+    AdminUserSerializer,
+    RoleSerializer,
+)
+
+from .models import Admin, Role
+
+from .permissions import HasRolePermission, IsRoleAdmin
+
 from .serializers import (
     AdminChangePasswordSerializer,
     AdminForgotPasswordSerializer,
     AdminLoginSerializer,
     AdminUserSerializer,
+    RoleListSerializer,
     RoleSerializer,
 )
 
@@ -21,6 +42,13 @@ from .serializers import (
 class RoleView(ModelViewSet):
     queryset = Role.objects.all()
     serializer_class = RoleSerializer
+    authentication_classes = [AdminJWTAuthentication]
+    permission_classes = [IsAuthenticated, IsRoleAdmin]
+
+    def get_serializer_class(self):
+        if self.action == "list":
+            return RoleListSerializer
+        return RoleSerializer
 
     def get_queryset(self):
         queryset = Role.objects.all()
@@ -39,6 +67,17 @@ class RoleView(ModelViewSet):
 class AdminUserViewSet(ModelViewSet):
     queryset = Admin.objects.select_related("role")
     serializer_class = AdminUserSerializer
+    authentication_classes = [AdminJWTAuthentication]
+    permission_classes = [IsAuthenticated, HasRolePermission]
+    required_permissions = {
+        "list": ["admin_get"],
+        "retrieve": ["admin_get"],
+        "create": ["admin_add"],
+        "update": ["admin_update"],
+        "partial_update": ["admin_update"],
+        "destroy": ["admin_delete"],
+    }
+
 
     def get_queryset(self):
         queryset = Admin.objects.select_related("role")
@@ -77,11 +116,15 @@ class AdminLoginAPIView(APIView):
         if not admin.verify_password(password):
             return Response({"detail": "Invalid credentials."}, status=status.HTTP_401_UNAUTHORIZED)
 
-        token = signing.dumps({"admin_id": admin.id})
+        refresh = RefreshToken()
+        refresh["admin_id"] = admin.id
+        refresh["role_id"] = admin.role_id
+        refresh["is_admin"] = admin.role.is_admin
 
         return Response(
             {
-                "token": token,
+                "access": str(refresh.access_token),
+                "refresh": str(refresh),
                 "admin": {
                     "id": admin.id,
                     "name": admin.name,
@@ -89,13 +132,35 @@ class AdminLoginAPIView(APIView):
                     "phone": admin.phone,
                     "status": admin.status,
                     "role_id": admin.role_id,
-                    "role": admin.role.name,
+                    "role": admin.role.role,
                     "permission": admin.role.permission,
                 },
             },
             status=status.HTTP_200_OK,
         )
 
+
+
+class AdminTokenRefreshAPIView(TokenRefreshView):
+    authentication_classes = []
+    permission_classes = []
+
+
+class AdminLogoutAPIView(APIView):
+    authentication_classes = [AdminJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = AdminLogoutSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            token = RefreshToken(serializer.validated_data["refresh"])
+            token.blacklist()
+        except TokenError:
+            return Response({"detail": "Invalid or expired refresh token."}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({"detail": "Logged out successfully."}, status=status.HTTP_200_OK)
 
 class AdminForgotPasswordAPIView(APIView):
     authentication_classes = []

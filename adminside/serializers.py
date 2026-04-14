@@ -20,7 +20,32 @@ class RoleSerializer(serializers.ModelSerializer):
             normalized_permissions.append(permission_code.strip())
 
         return list(dict.fromkeys(normalized_permissions))
+    
+    def validate(self, attrs):
+        is_admin = attrs.get("is_admin")
+        if self.instance is not None and "is_admin" not in attrs:
+            is_admin = self.instance.is_admin
 
+        if is_admin:
+            attrs["permission"] = ["all"]
+
+        return attrs
+    
+class RoleListSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Role
+        fields = ("id", "role", "permission", "is_admin")
+        read_only_fields = fields
+    
+    def validate(self, attrs):
+        is_admin = attrs.get("is_admin")
+        if self.instance is not None and "is_admin" not in attrs:
+            is_admin = self.instance.is_admin
+
+        if is_admin:
+            attrs["permission"] = ["all"]
+
+        return attrs
 
 class AdminUserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=8)
@@ -73,4 +98,7 @@ class AdminForgotPasswordSerializer(serializers.Serializer):
 class AdminChangePasswordSerializer(serializers.Serializer):
     uid = serializers.CharField()
     token = serializers.CharField()
-    new_password = serializers.CharField(min_length=8)
+    new_password = serializers.CharField()
+
+class AdminLogoutSerializer(serializers.Serializer):
+    refresh = serializers.CharField()
