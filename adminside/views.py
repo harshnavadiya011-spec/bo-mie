@@ -1,7 +1,10 @@
 from django.shortcuts import render
 
 # Create your views here.
-from django.http import HttpResponse
+from rest_framework.viewsets import ModelViewSet
+from .models import Role
+from .serializers import RoleSerializer
 
-def members(request):
-    return HttpResponse("Hello world!")
+class RoleViewSet(ModelViewSet):
+    queryset = Role.objects.all()
+    serializer_class = RoleSerializer
